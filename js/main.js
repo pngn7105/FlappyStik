@@ -23,6 +23,8 @@ let DIFFICULTIES = {};
 let LEVEL_CONFIG = {};
 let WORLD_THEME = {};
 
+let powerupsForcedForLevel = false;
+
 async function loadGameData() {
     try {
         const diffResponse = await fetch('config/difficulties.json');
@@ -68,6 +70,8 @@ function setMode(mode) {
     if (mode === 'ENDLESS') {
         endlessControls.style.display = 'flex';
         levelsView.style.display = 'none';
+        powerupsForcedForLevel = false;
+        updatePowerupsButton();
         
         
         if (changed) {
@@ -76,6 +80,8 @@ function setMode(mode) {
     } else {
         endlessControls.style.display = 'none';
         levelsView.style.display = 'flex';
+        powerupsForcedForLevel = true;
+        updatePowerupsButton();
         
         if (changed) {
             selectWorld(1); 
@@ -115,6 +121,7 @@ function startLevel(lvl) {
     activeLevel = lvl;
     const config = LEVEL_CONFIG[lvl];
     setDifficulty(config.diff);
+    powerupsForcedForLevel = true;
     init();
     startGame();
 }
@@ -140,6 +147,7 @@ function setDifficulty(level) {
     });
     
     loadHighScore();
+    updatePowerupsButton();
 
     if (gameState === 'GAMEOVER') {
         finalScoreEl.innerText = '0';
@@ -168,7 +176,8 @@ const gameOverScreenEl = document.getElementById('game-over-screen');
 const diffButtons = Array.from(document.querySelectorAll('.diff-btn'));
 
 function getHighScoreKey() {
-    return `flappyHighScore_${currentDifficulty}`;
+    const p = arePowerupsEnabled() ? 'powerups_on' : 'powerups_off';
+    return `flappyHighScore_${currentDifficulty}_${p}`;
 }
 
 function loadHighScore() {
@@ -745,6 +754,8 @@ function levelComplete() {
     
     const diffSelector = gameOverScreenEl.querySelector('.difficulty-selector');
     diffSelector.style.display = 'none'; 
+    const pRow = gameOverScreenEl.querySelector('.powerups-row');
+    if (pRow) pRow.style.display = 'none';
 
     const btns = gameOverScreenEl.querySelector('.game-over-buttons');
     if (activeLevel < 10) {
@@ -960,8 +971,12 @@ function gameOver() {
     const diffSelector = gameOverScreenEl.querySelector('.difficulty-selector');
     if (gameMode === 'LEVELS') {
         diffSelector.style.display = 'none';
+        const pRow = gameOverScreenEl.querySelector('.powerups-row');
+        if (pRow) pRow.style.display = 'none';
     } else {
         diffSelector.style.display = 'flex';
+        const pRow = gameOverScreenEl.querySelector('.powerups-row');
+        if (pRow) pRow.style.display = '';
     }
 
     gameOverScreenEl.classList.add('active');
@@ -998,7 +1013,7 @@ function loop(timestamp) {
             
             
             
-            if (frames - lastPowerupSpawn > PIPE_SPAWN_RATE * 8 || Math.random() < 0.25) { 
+            if (arePowerupsEnabled() && (frames - lastPowerupSpawn > PIPE_SPAWN_RATE * 8 || Math.random() < 0.25)) { 
                 const targetY = newPipe.topHeight + (PIPE_GAP / 2); 
                 let p;
                 if (powerupPool.length) {
@@ -1090,6 +1105,49 @@ function handleAction(e) {
         }
     }
 }
+
+const POWERUPS_KEY = 'flappyPowerupsEnabled';
+
+function arePowerupsEnabled() {
+    if (powerupsForcedForLevel) return true;
+    return localStorage.getItem(POWERUPS_KEY) !== '0';
+}
+
+function setPowerupsEnabled(enabled) {
+    localStorage.setItem(POWERUPS_KEY, enabled ? '1' : '0');
+    updatePowerupsButton();
+    loadHighScore();
+    if (!enabled) {
+        powerups = [];
+        powerupPool = [];
+    }
+
+    if (gameMode === 'ENDLESS') {
+        score = 0;
+        if (scoreEl) scoreEl.innerText = '0';
+        if (finalScoreEl) finalScoreEl.innerText = '0';
+    }
+}
+
+function updatePowerupsButton() {
+    const btns = Array.from(document.querySelectorAll('.powerups-btn'));
+    if (!btns.length) return;
+    const enabled = arePowerupsEnabled();
+    for (const btn of btns) {
+        btn.textContent = enabled ? 'Power-ups: ON' : 'Power-ups: OFF';
+        btn.setAttribute('aria-pressed', enabled ? 'true' : 'false');
+        btn.title = 'Toggle Power-ups';
+        btn.classList.toggle('disabled', !enabled);
+    }
+}
+
+document.addEventListener('click', (e) => {
+    const btn = e.target && e.target.closest ? e.target.closest('.powerups-btn') : null;
+    if (btn) {
+        e.stopPropagation();
+        setPowerupsEnabled(!arePowerupsEnabled());
+    }
+});
 
 window.setDifficulty = setDifficulty;
 window.setMode = setMode;

@@ -304,6 +304,21 @@ canvas {
     max-width: 380px;
 }
 
+.powerups-row {
+    width: 100%;
+    max-width: 380px;
+    box-sizing: border-box;
+    display: flex;
+    justify-content: center;
+    pointer-events: auto;
+    margin: 14px 0;
+}
+
+.game-over-container .powerups-row {
+    max-width: 100%;
+    margin: 0 0 12px 0;
+}
+
 .diff-btn {
     background: transparent;
     border: none;
