@@ -1,5 +1,6 @@
 const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d', { alpha: false });
+const useThreeRenderer = typeof THREE !== 'undefined';
 
 let GRAVITY = 0.42;
 let JUMP = 7.2;
@@ -9,8 +10,143 @@ let PIPE_WIDTH = 90;
 let PIPE_SPAWN_RATE = 115;
 let PIPE_VARIATION = 180;
 const GROUND_HEIGHT = 80;
+const DEPTH_OFFSET_MAX = 26;
+const HORIZON_HEIGHT_RATIO = 0.34;
 
 let POWERUP_TYPES = {};
+
+let threeRenderer;
+let threeScene;
+let threeCamera;
+let threeAmbientLight;
+let threeDirectionalLight;
+let threeBirdMesh;
+let threeGroundMesh;
+let threePipesGroup;
+let threePowerupsGroup;
+let worldWidth = 24;
+let worldHeight = 14;
+
+function screenToWorld(x, y) {
+    return {
+        x: ((x / canvas.width) - 0.5) * worldWidth,
+        y: (0.5 - (y / canvas.height)) * worldHeight
+    };
+}
+
+function sizeToWorld(width, height) {
+    return {
+        w: (width / canvas.width) * worldWidth,
+        h: (height / canvas.height) * worldHeight
+    };
+}
+
+function initThreeRenderer() {
+    if (!useThreeRenderer || threeRenderer) return;
+
+    threeRenderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
+    threeRenderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    threeRenderer.domElement.id = 'three-canvas';
+    threeRenderer.domElement.style.position = 'absolute';
+    threeRenderer.domElement.style.inset = '0';
+    threeRenderer.domElement.style.width = '100%';
+    threeRenderer.domElement.style.height = '100%';
+    threeRenderer.domElement.style.pointerEvents = 'none';
+    const gameContainer = document.getElementById('game-container');
+    const uiLayer = document.getElementById('ui-layer');
+    gameContainer.insertBefore(threeRenderer.domElement, uiLayer);
+
+    threeScene = new THREE.Scene();
+    threeScene.background = new THREE.Color(0x74b7ff);
+    threeScene.fog = new THREE.Fog(0x74b7ff, 15, 45);
+
+    threeCamera = new THREE.PerspectiveCamera(58, canvas.width / canvas.height, 0.1, 120);
+    threeCamera.position.set(0, 0.4, 22);
+    threeCamera.lookAt(0, 0, 0);
+
+    threeAmbientLight = new THREE.AmbientLight(0xffffff, 0.75);
+    threeScene.add(threeAmbientLight);
+
+    threeDirectionalLight = new THREE.DirectionalLight(0xffffff, 0.6);
+    threeDirectionalLight.position.set(5, 8, 14);
+    threeScene.add(threeDirectionalLight);
+
+    const groundGeo = new THREE.PlaneGeometry(80, 28, 1, 1);
+    const groundMat = new THREE.MeshStandardMaterial({ color: 0x4d301f, roughness: 0.95, metalness: 0.02 });
+    threeGroundMesh = new THREE.Mesh(groundGeo, groundMat);
+    threeGroundMesh.rotation.x = -Math.PI / 2.05;
+    threeGroundMesh.position.set(0, -6.2, -1.5);
+    threeScene.add(threeGroundMesh);
+
+    const birdGeo = new THREE.BoxGeometry(1.25, 0.5, 0.8);
+    const birdMat = new THREE.MeshStandardMaterial({ color: 0x8b4513, roughness: 0.7, metalness: 0.05 });
+    threeBirdMesh = new THREE.Mesh(birdGeo, birdMat);
+    threeBirdMesh.castShadow = false;
+    threeScene.add(threeBirdMesh);
+
+    threePipesGroup = new THREE.Group();
+    threePowerupsGroup = new THREE.Group();
+    threeScene.add(threePipesGroup);
+    threeScene.add(threePowerupsGroup);
+}
+
+function clearThreeGroup(group) {
+    while (group.children.length) {
+        const child = group.children[0];
+        group.remove(child);
+        if (child.geometry) child.geometry.dispose();
+        if (child.material) {
+            if (Array.isArray(child.material)) child.material.forEach(m => m.dispose());
+            else child.material.dispose();
+        }
+    }
+}
+
+function renderThreeScene(showPipes = true) {
+    if (!threeRenderer) return;
+
+    const birdPos = screenToWorld(bird.x, bird.y);
+    threeBirdMesh.position.set(birdPos.x, birdPos.y, 0.8);
+    threeBirdMesh.rotation.z = -bird.rotation;
+
+    clearThreeGroup(threePipesGroup);
+    clearThreeGroup(threePowerupsGroup);
+
+    if (showPipes) {
+        for (const pipe of pipes) {
+            const dims = sizeToWorld(pipe.w, pipe.topHeight);
+            const topPos = screenToWorld(pipe.x + pipe.w / 2, pipe.topHeight / 2);
+            const topMesh = new THREE.Mesh(
+                new THREE.BoxGeometry(dims.w, Math.max(dims.h, 0.1), 1.3),
+                new THREE.MeshStandardMaterial({ color: 0x5ba62e, roughness: 0.55, metalness: 0.08 })
+            );
+            topMesh.position.set(topPos.x, topPos.y, 0);
+            threePipesGroup.add(topMesh);
+
+            const bottomH = canvas.height - pipe.bottomY - GROUND_HEIGHT;
+            const bottomDims = sizeToWorld(pipe.w, bottomH);
+            const bottomPos = screenToWorld(pipe.x + pipe.w / 2, pipe.bottomY + bottomH / 2);
+            const bottomMesh = new THREE.Mesh(
+                new THREE.BoxGeometry(bottomDims.w, Math.max(bottomDims.h, 0.1), 1.3),
+                new THREE.MeshStandardMaterial({ color: 0x5ba62e, roughness: 0.55, metalness: 0.08 })
+            );
+            bottomMesh.position.set(bottomPos.x, bottomPos.y, 0);
+            threePipesGroup.add(bottomMesh);
+        }
+
+        for (const powerup of powerups) {
+            const pos = screenToWorld(powerup.x, powerup.y);
+            const sphere = new THREE.Mesh(
+                new THREE.SphereGeometry(0.35, 16, 16),
+                new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0x3366ff, emissiveIntensity: 0.45 })
+            );
+            sphere.position.set(pos.x, pos.y, 0.6);
+            threePowerupsGroup.add(sphere);
+        }
+    }
+
+    threeRenderer.render(threeScene, threeCamera);
+}
 
 
 let currentDifficulty = 'NORMAL';
@@ -312,6 +448,15 @@ function initRendering() {
 function resize() {
     canvas.width = window.innerWidth;
     canvas.height = window.innerHeight;
+
+    if (useThreeRenderer) {
+        initThreeRenderer();
+        worldWidth = 24;
+        worldHeight = worldWidth * (canvas.height / canvas.width);
+        threeRenderer.setSize(canvas.width, canvas.height, false);
+        threeCamera.aspect = canvas.width / canvas.height;
+        threeCamera.updateProjectionMatrix();
+    }
     
     skyGradient = ctx.createLinearGradient(0, 0, 0, canvas.height);
     
@@ -476,19 +621,49 @@ const bird = {
 const ground = {
     draw: function() {
         const topY = canvas.height - GROUND_HEIGHT;
-        
-        ctx.fillStyle = WORLD_THEME.groundColor || '#553c2a';
+        const horizonY = getHorizonY();
+        const vanishingX = canvas.width * 0.68;
+
+        const groundGrad = ctx.createLinearGradient(0, topY, 0, canvas.height);
+        groundGrad.addColorStop(0, WORLD_THEME.groundColor || '#553c2a');
+        groundGrad.addColorStop(1, '#2b1a11');
+        ctx.fillStyle = groundGrad;
         ctx.fillRect(0, topY, canvas.width, GROUND_HEIGHT);
-        
+
         ctx.fillStyle = WORLD_THEME.groundTopColor || '#73bf2e';
         ctx.fillRect(0, topY, canvas.width, 25);
-        
+
+        ctx.save();
+        ctx.globalAlpha = 0.22;
+        ctx.strokeStyle = '#ffffff';
+        ctx.lineWidth = 1.5;
+        for (let i = -2; i <= 7; i++) {
+            const x = (i / 6) * canvas.width;
+            ctx.beginPath();
+            ctx.moveTo(x, canvas.height);
+            ctx.lineTo(vanishingX + (x - vanishingX) * 0.08, horizonY);
+            ctx.stroke();
+        }
+        ctx.restore();
+
+        ctx.save();
+        ctx.globalAlpha = 0.14;
+        ctx.fillStyle = '#000';
+        ctx.beginPath();
+        ctx.moveTo(0, topY);
+        ctx.lineTo(canvas.width, topY);
+        ctx.lineTo(vanishingX + canvas.width * 0.2, horizonY);
+        ctx.lineTo(vanishingX - canvas.width * 0.8, horizonY);
+        ctx.closePath();
+        ctx.fill();
+        ctx.restore();
+
         ctx.save();
         ctx.translate(-(frames * SPEED) % 30, topY);
         ctx.fillStyle = groundPattern;
         ctx.fillRect(0, 0, canvas.width + 30, 25);
         ctx.restore();
-        
+
         ctx.strokeStyle = '#000';
         ctx.lineWidth = 3;
         ctx.beginPath();
@@ -675,25 +850,51 @@ class Pipe {
         const drawCtx = targetCtx;
         drawCtx.save();
         const drawX = Math.round(this.x);
+        const depthOffset = getDepthOffset(this.bottomY);
         drawCtx.translate(drawX, 0);
-        
+
         drawCtx.fillStyle = pipeGradient;
         drawCtx.strokeStyle = '#000';
         drawCtx.lineWidth = 3;
 
         drawCtx.fillRect(0, 0, this.w, this.topHeight);
         drawCtx.strokeRect(0, -5, this.w, this.topHeight + 5);
-        
+
         const bottomH = canvas.height - this.bottomY - GROUND_HEIGHT;
         drawCtx.fillRect(0, this.bottomY, this.w, bottomH);
         drawCtx.strokeRect(0, this.bottomY, this.w, bottomH);
-        
+
         const capH = 30;
         const capOverhang = 6;
         drawCtx.fillRect(-capOverhang, this.topHeight - capH, this.w + capOverhang * 2, capH);
         drawCtx.strokeRect(-capOverhang, this.topHeight - capH, this.w + capOverhang * 2, capH);
         drawCtx.fillRect(-capOverhang, this.bottomY, this.w + capOverhang * 2, capH);
         drawCtx.strokeRect(-capOverhang, this.bottomY, this.w + capOverhang * 2, capH);
+
+        const sideShade = drawCtx.createLinearGradient(this.w, 0, this.w + depthOffset, 0);
+        sideShade.addColorStop(0, 'rgba(0, 0, 0, 0.35)');
+        sideShade.addColorStop(1, 'rgba(0, 0, 0, 0.58)');
+        drawCtx.fillStyle = sideShade;
+
+        drawCtx.beginPath();
+        drawCtx.moveTo(this.w, 0);
+        drawCtx.lineTo(this.w + depthOffset, -depthOffset * 0.45);
+        drawCtx.lineTo(this.w + depthOffset, this.topHeight - depthOffset * 0.45);
+        drawCtx.lineTo(this.w, this.topHeight);
+        drawCtx.closePath();
+        drawCtx.fill();
+
+        drawCtx.beginPath();
+        drawCtx.moveTo(this.w, this.bottomY);
+        drawCtx.lineTo(this.w + depthOffset, this.bottomY - depthOffset * 0.45);
+        drawCtx.lineTo(this.w + depthOffset, this.bottomY + bottomH - depthOffset * 0.45);
+        drawCtx.lineTo(this.w, this.bottomY + bottomH);
+        drawCtx.closePath();
+        drawCtx.fill();
+
+        drawCtx.fillStyle = 'rgba(255,255,255,0.18)';
+        drawCtx.fillRect(8, 0, 10, this.topHeight);
+        drawCtx.fillRect(8, this.bottomY, 10, bottomH);
 
         drawCtx.restore();
     }
@@ -789,6 +990,13 @@ function drawBackground() {
         ctx.drawImage(cityCanvas, baseX, 0);
     }
 
+    const horizonY = getHorizonY();
+    const hazeGrad = ctx.createLinearGradient(0, horizonY - 120, 0, horizonY + 120);
+    hazeGrad.addColorStop(0, 'rgba(255,255,255,0)');
+    hazeGrad.addColorStop(1, 'rgba(255,255,255,0.2)');
+    ctx.fillStyle = hazeGrad;
+    ctx.fillRect(0, horizonY - 120, canvas.width, 240);
+
     ctx.globalAlpha = 0.6;
     for (let c of clouds) {
         c.x -= c.s * 0.2;
@@ -818,6 +1026,11 @@ function drawPipesAndPowerups() {
 }
 
 function renderScene({ showPipes } = {}) {
+    if (useThreeRenderer) {
+        renderThreeScene(showPipes);
+        return;
+    }
+
     drawBackground();
     if (showPipes) {
         drawPipesAndPowerups();
@@ -834,6 +1047,15 @@ let frameShieldPulse = 0;
 let fpsEl;
 let fpsLastTime = 0;
 let fpsFrames = 0;
+
+function getHorizonY() {
+    return canvas.height * HORIZON_HEIGHT_RATIO;
+}
+
+function getDepthOffset(y) {
+    const clamped = Math.max(0, Math.min(1, y / canvas.height));
+    return 6 + clamped * DEPTH_OFFSET_MAX;
+}
 
 function updateFrameCaches() {
     frameFloat = Math.sin(frames * 0.1);

@@ -525,3 +525,11 @@ button:active {
 @media (max-width: 600px) {
     .score-card { width: 90vw; padding: 30px 0; }
 }
+
+#three-canvas {
+    z-index: 5;
+}
+
+#ui-layer {
+    z-index: 20;
+}
