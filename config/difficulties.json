@@ -4,5 +4,5 @@
     "NORMAL": { "gravity": 0.42, "jump": 7.2, "speed": 3.5, "gap": 140, "spawn": 115, "variation": 230 },
     "HARD": { "gravity": 0.48, "jump": 7.5, "speed": 4.5, "gap": 110, "spawn": 90, "variation": 300 },
     "EXTREME": { "gravity": 0.60, "jump": 8.5, "speed": 6.5, "gap": 95, "spawn": 60, "variation": 400 },
-    "IMPOSSIBLE": { "gravity": 0.75, "jump": 9.5, "speed": 9.2, "gap": 52, "spawn": 75, "variation": 475 }
+    "IMPOSSIBLE": { "gravity": 0.75, "jump": 99, "speed": 99, "gap": 1, "spawn": 75, "variation": 475 }
 }
